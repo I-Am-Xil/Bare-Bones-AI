@@ -3,7 +3,7 @@
 #include<time.h>
 #include<math.h>
 
-#define train_count (sizeof(train)/sizeof(train[0]))
+//#define train_count (sizeof(train)/sizeof(train[0]))
 
 
 float sigmoidf(float x){
@@ -11,13 +11,32 @@ float sigmoidf(float x){
 }
 
 
+typedef float sample[3];
+
 //OR-gate
-float train[][3] = {
+sample or_train[] = {
     {0, 0, 0},
     {1, 0, 1},
     {0, 1, 1},
-    {1, 1, 1},
+    {1, 1, 1}
 };
+
+sample and_train[] = {
+    {0, 0, 0},
+    {1, 0, 0},
+    {0, 1, 0},
+    {1, 1, 1}
+};
+
+sample nand_train[] = {
+    {0, 0, 1},
+    {1, 0, 1},
+    {0, 1, 1},
+    {1, 1, 0}
+};
+
+sample *train = or_train;
+size_t train_count = 4;
 
 
 float rand_float(void)
@@ -51,10 +70,10 @@ int main(){
     float epsilon = 1e-3;
     float rate = 1e-1;
 
-    for (size_t i = 0; i < 10000; i++)
+    for (size_t i = 0; i < 100000; i++)
     {
         float cost_value = cost(w_1, w_2, b);
-        printf("w_1 = %f, w_2 = %f, b = %f, c = %f\n", w_1, w_2, b, cost_value);
+        //printf("w_1 = %f, w_2 = %f, b = %f, c = %f\n", w_1, w_2, b, cost_value);
         //printf("%f\n", cost_value);
         float dw_1 = (cost(w_1 + epsilon, w_2, b) - cost_value)/epsilon;
         float dw_2 = (cost(w_1, w_2 + epsilon, b) - cost_value)/epsilon;
