@@ -12,15 +12,13 @@ float train[][2] = {
     {4, 8}
 };
 
-float rand_float(void)
-{
+float rand_float(void) {
     return (float) rand()/ (float) RAND_MAX;
 }
 
-float cost(float w, float b){
+float cost(float w, float b) {
     float result = 0.0f;
-    for (size_t i = 0; i < train_count; i++)
-    {
+    for (size_t i = 0; i < train_count; i++) {
         float x = train[i][0];
         float y = x*w + b;
         float d = y - train[i][1];
@@ -30,8 +28,7 @@ float cost(float w, float b){
     return result /= train_count;
 }
 
-int main()
-{
+int main() {
     srand(time(0));
     float w = rand_float()*10.0f;
     float b = rand_float()*2.5f;
@@ -41,8 +38,7 @@ int main()
 
     printf("%f\n", cost(w, b));
 
-    for (size_t i = 0; i < 2000; i++)
-    {
+    for (size_t i = 0; i < 2000; i++) {
         float cost_value = cost(w, b);
         float dw = (cost(w + epsilon, b) - cost_value)/epsilon;
         float db = (cost(w, b + epsilon) - cost_value)/epsilon;
