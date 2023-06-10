@@ -146,24 +146,24 @@ void mat_copy(Mat *dst, Mat *src) {
 }
 
 
-void nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count) {
+void nn_alloc(NN *nn, size_t *arch, size_t arch_count) {
 
     NN_ASSERT(arch_count > 0);
-    nn_pointer->count = arch_count - 1;
+    nn->count = arch_count - 1;
 
-    nn_pointer->ws = NN_MALLOC(sizeof(*nn_pointer->ws)*nn_pointer->count);
-    NN_ASSERT(nn_pointer->ws != NULL);
-    nn_pointer->bs = NN_MALLOC(sizeof(*nn_pointer->bs)*nn_pointer->count);
-    NN_ASSERT(nn_pointer->bs != NULL);
-    nn_pointer->as = NN_MALLOC(sizeof(*nn_pointer->as)*nn_pointer->count + 1);
-    NN_ASSERT(nn_pointer->as != NULL);
+    nn->ws = NN_MALLOC(sizeof(*nn->ws)*nn->count);
+    NN_ASSERT(nn->ws != NULL);
+    nn->bs = NN_MALLOC(sizeof(*nn->bs)*nn->count);
+    NN_ASSERT(nn->bs != NULL);
+    nn->as = NN_MALLOC(sizeof(*nn->as)*nn->count + 1);
+    NN_ASSERT(nn->as != NULL);
 
-    nn_pointer->as[0] = mat_alloc(1, arch[0]);
+    nn->as[0] = mat_alloc(1, arch[0]);
 
     for (size_t i = 1; i < arch_count; i++) {
-        nn_pointer->ws[i-1] = mat_alloc(nn_pointer->as[i-1].cols, arch[i]);
-        nn_pointer->bs[i-1] = mat_alloc(1, arch[i]);
-        nn_pointer->as[i]   = mat_alloc(1, arch[i]);
+        nn->ws[i-1] = mat_alloc(nn->as[i-1].cols, arch[i]);
+        nn->bs[i-1] = mat_alloc(1, arch[i]);
+        nn->as[i]   = mat_alloc(1, arch[i]);
     }
 }
 
@@ -174,54 +174,44 @@ void nn_print(NN *nn, const char *name) {
     printf("%s = [\n", name);
     
     for (size_t i = 0; i < nn->count; i++) {
-        Mat *p;
-
-        p = &nn->ws[i];
         snprintf(buf, sizeof(buf), "ws%u", i);
-        mat_print(p, buf, 4);
-
-        p = &nn->bs[i];
+        mat_print(&nn->ws[i], buf, 4);
         snprintf(buf, sizeof(buf), "bs%u", i);
-        mat_print(p, buf, 4);
+        mat_print(&nn->bs[i], buf, 4);
     }
 
     printf("]\n");   
 }
 
 
-void nn_rand(NN *nn_pointer, float low, float high) {
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        Mat *p;
-        p = &nn_pointer->ws[i];
-        mat_rand(p, low, high);
-
-        p = &nn_pointer->bs[i];
-        mat_rand(p, low, high);
+void nn_rand(NN *nn, float low, float high) {
+    for (size_t i = 0; i < nn->count; i++) {
+        mat_rand(&nn->ws[i], low, high);
+        mat_rand(&nn->bs[i], low, high);
     }
 }
 
 
-void nn_forward(NN *nn_pointer) {
-    Mat *p;
-    Mat *q;
-    Mat *l;
-    Mat *k;
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        p = &nn_pointer->as[i+1];
-        q = &nn_pointer->as[i];
-        l = &nn_pointer->ws[i];
-        k = &nn_pointer->bs[i];
-
-        mat_mul(p, q, l);
-        mat_sum(p, k);
-        mat_sig(p);
+void nn_fill(NN *nn, float x) {
+    for (size_t i = 0; i < nn->count; i++) {
+        mat_fill(&nn->ws[i], x);
+        mat_fill(&nn->bs[i], x);
     }
 }
 
 
-float nn_cost(NN *nn_pointer, Mat *ti, Mat *to) {
+void nn_forward(NN *nn) {
+    for (size_t i = 0; i < nn->count; i++) {
+        mat_mul(&nn->as[i+1], &nn->as[i], &nn->ws[i]);
+        mat_sum(&nn->as[i+1], &nn->bs[i]);
+        mat_sig(&nn->as[i+1]);
+    }
+}
+
+
+float nn_cost(NN *nn, Mat *ti, Mat *to) {
     assert(ti->rows == to->rows);
-    assert(to->cols == NN_OUTPUT(nn_pointer).cols);
+    assert(to->cols == NN_OUTPUT(nn).cols);
 
     size_t n = ti->rows;
     float c = 0;
@@ -229,17 +219,13 @@ float nn_cost(NN *nn_pointer, Mat *ti, Mat *to) {
     for (size_t i = 0; i < n; i++) {
         Mat x = mat_row(ti, i);
         Mat y = mat_row(to, i);
-        Mat *x_pointer = &x;
-        Mat *y_pointer = &y;
-        Mat *input = &NN_INPUT(nn_pointer);
-        Mat *output = &NN_OUTPUT(nn_pointer);
 
-        mat_copy(input, x_pointer);
-        nn_forward(nn_pointer);
+        mat_copy(&NN_INPUT(nn), &x);
+        nn_forward(nn);
 
         size_t q = to->cols;
         for (size_t j = 0; j < q; j++) {
-            float d = MAT_AT(output, 0, j) - MAT_AT(y_pointer, 0, j);
+            float d = MAT_AT(&NN_OUTPUT(nn), 0, j) - MAT_AT(&y, 0, j);
             c += d*d;
         }
     }
@@ -247,89 +233,124 @@ float nn_cost(NN *nn_pointer, Mat *ti, Mat *to) {
 }
 
 
-void nn_finite_diff(NN *nn_pointer, NN *g_pointer, float epsilon, Mat *ti, Mat *to) {
-    float saved;
-    float c = nn_cost(nn_pointer, ti, to);
+void nn_backprop(NN *nn, NN *g, Mat *ti, Mat *to) {
+    NN_ASSERT(ti->rows == to->rows);
+    size_t n = ti->rows;
+    NN_ASSERT(NN_OUTPUT(nn).cols == to->cols);
 
-    Mat *ws_p;
-    Mat *bs_p;
-    Mat *g_p;
+    nn_fill(g, 0);
     
+    /*
+    i = current sample
+    l = current layer
+    j = current activation
+    k = previous activation
+    */
 
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        for (size_t j = 0; j < nn_pointer->ws[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->ws[i].cols; k++) {
-                ws_p = &nn_pointer->ws[i];
-                g_p = &g_pointer->ws[i];
-                
-                saved = MAT_AT(ws_p, j, k);
-                MAT_AT(ws_p, j, k) += epsilon;
-                MAT_AT(g_p, j, k) = (nn_cost(nn_pointer, ti, to) - c) /epsilon;
-                MAT_AT(ws_p, j, k) = saved;
-            }
+    for (size_t i = 0; i < n; i++) {
+        Mat p = mat_row(ti, i);
+        mat_copy(&NN_INPUT(nn), &p);
+        nn_forward(nn);
+
+        for (size_t j = 0; j < nn->count; j++) {
+            mat_fill(&g->as[j], 0);
+        }
+        
+
+        for (size_t j = 0; j < to->cols; j++) {
+            MAT_AT(&NN_OUTPUT(g), 0, j) = MAT_AT(&NN_OUTPUT(nn), 0, j) - MAT_AT(to, i, j);
         }
 
-        for (size_t j = 0; j < nn_pointer->bs[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->bs[i].cols; k++) {
-                bs_p = &nn_pointer->bs[i];
-                g_p = &g_pointer->bs[i];
-                saved = MAT_AT(bs_p, j, k);
-                MAT_AT(bs_p, j, k) += epsilon;
-                MAT_AT(g_p,  j, k) = (nn_cost(nn_pointer, ti, to) - c) /epsilon;
-                MAT_AT(bs_p, j, k) = saved;
+        for (size_t l = nn->count; l > 0 ; l--) {
+            for (size_t j = 0; j < nn->as[l].cols; j++) {
+                float a = MAT_AT(&nn->as[l], 0, j);
+                float da = MAT_AT(&g->as[l], 0, j);
+                MAT_AT(&g->bs[l-1], 0, j) += 2*da*a*(1 - a);
+
+                for (size_t k = 0; k < nn->as[l-1].cols; k++) {
+                    // j = weight matrix col
+                    // k = weight matrix row
+                    float pa = MAT_AT(&nn->as[l-1], 0, k);
+                    float w = MAT_AT(&nn->ws[l-1], k, j);
+                    MAT_AT(&g->ws[l-1], k, j) += 2*da*a*(1 - a)*pa;
+                    MAT_AT(&g->as[l-1], 0, k) += 2*da*a*(1 - a)*w;
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < g->count; i++) {
+        for (size_t j = 0; j < g->ws[i].rows; j++) {
+            for (size_t k = 0; k < g->ws[i].cols; k++) {
+                MAT_AT(&g->ws[i], j, k) /= n;
+            }
+        }
+        
+        for (size_t j = 0; j < g->bs[i].rows; j++) {
+            for (size_t k = 0; k < g->bs[i].cols; k++) {
+                MAT_AT(&g->bs[i], j, k) /= n;
             }
         }
     }
 }
 
 
-void nn_learn(NN *nn_pointer, NN *g_pointer, float rate) {
-    Mat *nn_p;
-    Mat *g_p;
+void nn_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to) {
+    float saved;
+    float c = nn_cost(nn, ti, to);
 
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        for (size_t j = 0; j < nn_pointer->ws[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->ws[i].cols; k++) {
-                nn_p = &nn_pointer->ws[i];
-                g_p = &g_pointer->ws[i];
-                MAT_AT(nn_p, j, k) -= rate*MAT_AT(g_p, j, k);
+    for (size_t i = 0; i < nn->count; i++) {
+        for (size_t j = 0; j < nn->ws[i].rows; j++) {
+            for (size_t k = 0; k < nn->ws[i].cols; k++) {
+                saved = MAT_AT(&nn->ws[i], j, k);
+                MAT_AT(&nn->ws[i], j, k) += epsilon;
+                MAT_AT(&g->ws[i], j, k) = (nn_cost(nn, ti, to) - c) /epsilon;
+                MAT_AT(&nn->ws[i], j, k) = saved;
             }
         }
 
-        for (size_t j = 0; j < nn_pointer->bs[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->bs[i].cols; k++) {
-                nn_p = &nn_pointer->bs[i];
-                g_p = &g_pointer->bs[i];
-                MAT_AT(nn_p, j, k) -= rate*MAT_AT(g_p, j, k);
+        for (size_t j = 0; j < nn->bs[i].rows; j++) {
+            for (size_t k = 0; k < nn->bs[i].cols; k++) {
+                saved = MAT_AT(&nn->bs[i], j, k);
+                MAT_AT(&nn->bs[i], j, k) += epsilon;
+                MAT_AT(&g->bs[i],  j, k) = (nn_cost(nn, ti, to) - c) /epsilon;
+                MAT_AT(&nn->bs[i], j, k) = saved;
             }
         }
     }
 }
 
 
-void nn_nonlinear_forward(NN *nn_pointer, float power) {
-    Mat *p;
-    Mat *q;
-    Mat *l;
-    Mat *k;
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        p = &nn_pointer->as[i+1];
-        q = &nn_pointer->as[i];
-        l = &nn_pointer->ws[i];
-        k = &nn_pointer->bs[i];
+void nn_learn(NN *nn, NN *g, float rate) {
+    for (size_t i = 0; i < nn->count; i++) {
+        for (size_t j = 0; j < nn->ws[i].rows; j++) {
+            for (size_t k = 0; k < nn->ws[i].cols; k++) {
+                MAT_AT(&nn->ws[i], j, k) -= rate*MAT_AT(&g->ws[i], j, k);
+            }
+        }
 
-        mat_mul(p, q, l);
-        mat_polinomial_transform(p, power);
-        mat_sum(p, k);
-        mat_sig(p);
-        (void) power;
+        for (size_t j = 0; j < nn->bs[i].rows; j++) {
+            for (size_t k = 0; k < nn->bs[i].cols; k++) {
+                MAT_AT(&nn->bs[i], j, k) -= rate*MAT_AT(&g->bs[i], j, k);
+            }
+        }
     }
 }
 
 
-float nn_nonlinear_cost(NN *nn_pointer, Mat *ti, Mat *to, float power) {
+void nn_nonlinear_forward(NN *nn, float power) {
+    for (size_t i = 0; i < nn->count; i++) {
+        mat_mul(&nn->as[i+1], &nn->as[i], &nn->ws[i]);
+        mat_polinomial_transform(&nn->as[i+1], power);
+        mat_sum(&nn->as[i+1], &nn->bs[i]);
+        mat_sig(&nn->as[i+1]);
+    }
+}
+
+
+float nn_nonlinear_cost(NN *nn, Mat *ti, Mat *to, float power) {
     assert(ti->rows == to->rows);
-    assert(to->cols == NN_OUTPUT(nn_pointer).cols);
+    assert(to->cols == NN_OUTPUT(nn).cols);
 
     size_t n = ti->rows;
     float c = 0;
@@ -337,17 +358,13 @@ float nn_nonlinear_cost(NN *nn_pointer, Mat *ti, Mat *to, float power) {
     for (size_t i = 0; i < n; i++) {
         Mat x = mat_row(ti, i);
         Mat y = mat_row(to, i);
-        Mat *x_pointer = &x;
-        Mat *y_pointer = &y;
-        Mat *input = &NN_INPUT(nn_pointer);
-        Mat *output = &NN_OUTPUT(nn_pointer);
 
-        mat_copy(input, x_pointer);
-        nn_nonlinear_forward(nn_pointer, power);
+        mat_copy(&NN_INPUT(nn), &x);
+        nn_nonlinear_forward(nn, power);
 
         size_t q = to->cols;
         for (size_t j = 0; j < q; j++) {
-            float d = MAT_AT(output, 0, j) - MAT_AT(y_pointer, 0, j);
+            float d = MAT_AT(&NN_OUTPUT(nn), 0, j) - MAT_AT(&y, 0, j);
             c += d*d;
         }
     }
@@ -355,39 +372,101 @@ float nn_nonlinear_cost(NN *nn_pointer, Mat *ti, Mat *to, float power) {
 }
 
 
-void nn_nonlinear_finite_diff(NN *nn_pointer, NN *g_pointer, float epsilon, Mat *ti, Mat *to, float power) {
+void nn_nonlinear_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to, float power) {
     float saved;
-    float c = nn_nonlinear_cost(nn_pointer, ti, to, power);
+    float c = nn_nonlinear_cost(nn, ti, to, power);
 
-    Mat *ws_p;
-    Mat *bs_p;
-    Mat *g_p;
-    
-
-    for (size_t i = 0; i < nn_pointer->count; i++) {
-        ws_p = &nn_pointer->ws[i];
-        g_p = &g_pointer->ws[i];
-        
-        for (size_t j = 0; j < nn_pointer->ws[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->ws[i].cols; k++) {
+    for (size_t i = 0; i < nn->count; i++) {
+        for (size_t j = 0; j < nn->ws[i].rows; j++) {
+            for (size_t k = 0; k < nn->ws[i].cols; k++) {
                 
-                saved = MAT_AT(ws_p, j, k);
-                MAT_AT(ws_p, j, k) += epsilon;
-                MAT_AT(g_p, j, k) = (nn_nonlinear_cost(nn_pointer, ti, to, power) - c) /epsilon;
-                MAT_AT(ws_p, j, k) = saved;
+                saved = MAT_AT(&nn->ws[i], j, k);
+                MAT_AT(&nn->ws[i], j, k) += epsilon;
+                MAT_AT(&g->ws[i], j, k) = (nn_nonlinear_cost(nn, ti, to, power) - c) /epsilon;
+                MAT_AT(&nn->ws[i], j, k) = saved;
             }
         }
-
-        bs_p = &nn_pointer->bs[i];
-        g_p = &g_pointer->bs[i];
         
-        for (size_t j = 0; j < nn_pointer->bs[i].rows; j++) {
-            for (size_t k = 0; k < nn_pointer->bs[i].cols; k++) {
-                saved = MAT_AT(bs_p, j, k);
-                MAT_AT(bs_p, j, k) += epsilon;
-                MAT_AT(g_p,  j, k) = (nn_nonlinear_cost(nn_pointer, ti, to, power) - c) /epsilon;
-                MAT_AT(bs_p, j, k) = saved;
+        for (size_t j = 0; j < nn->bs[i].rows; j++) {
+            for (size_t k = 0; k < nn->bs[i].cols; k++) {
+                saved = MAT_AT(&nn->bs[i], j, k);
+                MAT_AT(&nn->bs[i], j, k) += epsilon;
+                MAT_AT(&g->bs[i],  j, k) = (nn_nonlinear_cost(nn, ti, to, power) - c) /epsilon;
+                MAT_AT(&nn->bs[i], j, k) = saved;
             }
         }
     }
 }
+
+
+//TODO: try finite differences with dynamic epsilon
+//TODO: try HSIC bottleneck
+// * Backprop for nonlinear trandformations before activation doesn't work. i have no idea why.
+// * I'll just comment it out and keep using finite differences until i find a way to make it work
+// * or i'll ignore backprop to implement other algorithms. I've been here for 20 hours.
+// * I give up. If you read this and want to try it. Good luck.
+/*
+void nn_nonlinear_backprop(NN *nn, NN *g, Mat *ti, Mat *to, float power) {
+    NN_ASSERT(ti->rows == to->rows);
+    size_t n = ti->rows;
+    NN_ASSERT(NN_OUTPUT(nn).cols == to->cols);
+
+    nn_fill(g, 0);
+    
+    
+    //i = current sample
+    //l = current layer
+    //j = current activation
+    //k = previous activation
+    
+
+    for (size_t i = 0; i < n; i++) {
+        Mat p = mat_row(ti, i);
+        mat_copy(&NN_INPUT(nn), &p);
+        nn_nonlinear_forward(nn, power);
+
+        for (size_t j = 0; j < nn->count; j++) {
+            mat_fill(&g->as[j], 0);
+        }
+        
+
+        for (size_t j = 0; j < to->cols; j++) {
+            MAT_AT(&NN_OUTPUT(g), 0, j) = MAT_AT(&NN_OUTPUT(nn), 0, j) - MAT_AT(to, i, j);
+        }
+
+        for (size_t l = nn->count; l > 0 ; l--) {
+            for (size_t j = 0; j < nn->as[l].cols; j++) {
+                float a = MAT_AT(&nn->as[l], 0, j);
+                float da = MAT_AT(&g->as[l], 0, j);
+                float bd = 2*da*a*(1 - a);
+                float pd = 2*bd;
+                MAT_AT(&g->bs[l-1], 0, j) += bd;
+
+                for (size_t k = 0; k < nn->as[l-1].cols; k++) {
+                    // j = weight matrix col
+                    // k = weight matrix row
+                    float pa = MAT_AT(&nn->as[l-1], 0, k);
+                    float w = MAT_AT(&nn->ws[l-1], k, j);
+                    float paw = pd*pa*w;
+                    MAT_AT(&g->ws[l-1], k, j) += paw*pa;
+                    MAT_AT(&g->as[l-1], 0, k) += paw*w;
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < g->count; i++) {
+        for (size_t j = 0; j < g->ws[i].rows; j++) {
+            for (size_t k = 0; k < g->ws[i].cols; k++) {
+                MAT_AT(&g->ws[i], j, k) /= n;
+            }
+        }
+        
+        for (size_t j = 0; j < g->bs[i].rows; j++) {
+            for (size_t k = 0; k < g->bs[i].cols; k++) {
+                MAT_AT(&g->bs[i], j, k) /= n;
+            }
+        }
+    }
+}
+*/

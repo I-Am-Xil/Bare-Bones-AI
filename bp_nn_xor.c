@@ -12,13 +12,12 @@ float td[] = {
 
 
 int main() {
-    srand(time(0));
+    //srand(time(0));
+    srand(69);
 
     size_t stride = 3;
     size_t n = sizeof(td)/sizeof(td[0])/stride;
 
-    float epsilon = 1e-1;
-    float rate = 1e-1;
     
     Mat ti = {
         .rows = n,
@@ -37,17 +36,22 @@ int main() {
     NN nn;
     NN g;
 
+    //float epsilon = 1e-1;
+    float rate = 1;
+    
     size_t arch[] = {2, 2, 1};
     nn_alloc(&nn, arch, ARRAY_LEN(arch));
     nn_alloc(&g, arch, ARRAY_LEN(arch));
     nn_rand(&nn, 0, 1);
 
-    //printf("cost = %f\n", nn_cost(&nn, ti, to));
+    printf("cost = %f\n", nn_cost(&nn, ti, to));
 
-    for (size_t i = 0; i < 50000; i++) {
-        nn_finite_diff(&nn, &g, epsilon, ti, to);
-        nn_learn(&nn,& g, rate);
-        //printf("cost = %f\n", nn_cost(&nn, ti, to));
+    for (size_t i = 0; i < 10000; i++) {
+        nn_backprop(&nn, &g, ti, to);
+        //NN_PRINT(g);
+        //nn_finite_diff(nn_pointer, g_pointer, epsilon, ti, to);
+        nn_learn(&nn, &g, rate);
+        printf("cost = %f\n", nn_cost(&nn, ti, to));
     }
 
     for (size_t i = 0; i < 2; i++) {

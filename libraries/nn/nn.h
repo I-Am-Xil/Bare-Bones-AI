@@ -32,7 +32,7 @@ typedef struct {
     float *es;
 } Mat;
 
-#define MAT_AT(m, i, j) m.es[(i)*(m).stride + (j)]
+#define MAT_AT(m, i, j) (m).es[(i)*(m).stride + (j)]
 
 Mat mat_alloc(size_t rows, size_t cols);
 void mat_sig(Mat m);
@@ -55,13 +55,14 @@ typedef struct {
 #define NN_INPUT(nn_pointer) (nn_pointer)->as[0]
 #define NN_OUTPUT(nn_pointer) (nn_pointer)->as[(nn_pointer)->count]
 
-NN *nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count);
+void nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count);
 void nn_print(NN nn, const char *name);
 #define NN_PRINT(nn) nn_print(nn, #nn)
 void nn_rand(NN *nn_pointer, float low, float high);
 void nn_forward(NN *nn_pointer);
 float nn_cost(NN *nn_pointer, Mat ti, Mat to);
 void nn_finite_diff(NN *nn_pointer, NN *g_pointer, float epsilon, Mat ti, Mat to);
+void nn_backprop(NN *nn_pointer, NN *g_pointer, Mat ti, Mat to);
 void nn_learn(NN *nn_pointer, NN *g_pointer, float rate);
 #endif //NN_H_
 
@@ -192,7 +193,7 @@ nn_pointer = nn_alloc(arch, ARRAY_LEN(arch));
 */
 
 
-NN *nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count) {
+void nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count) {
 
     NN_ASSERT(arch_count > 0);
     nn_pointer->count = arch_count - 1;
@@ -211,8 +212,6 @@ NN *nn_alloc(NN *nn_pointer, size_t *arch, size_t arch_count) {
         nn_pointer->bs[i-1] = mat_alloc(1, arch[i]);
         nn_pointer->as[i]   = mat_alloc(1, arch[i]);
     }
-
-    return nn_pointer; 
 }
 
 
@@ -237,6 +236,14 @@ void nn_rand(NN *nn_pointer, float low, float high) {
     for (size_t i = 0; i < nn_pointer->count; i++) {
         mat_rand(nn_pointer->ws[i], low, high);
         mat_rand(nn_pointer->bs[i], low, high);
+    }
+}
+
+
+void nn_fill(NN *nn_pointer, float x) {
+    for (size_t i = 0; i < nn_pointer->count; i++) {
+        mat_fill(nn_pointer->ws[i], x);
+        mat_fill(nn_pointer->bs[i], x);
     }
 }
 
@@ -271,6 +278,67 @@ float nn_cost(NN *nn_pointer, Mat ti, Mat to) {
         }
     }
     return c/n;
+}
+
+
+void nn_backprop(NN *nn_pointer, NN *g_pointer, Mat ti, Mat to) {
+    NN_ASSERT(ti.rows == to.rows);
+    size_t n = ti.rows;
+    NN_ASSERT(NN_OUTPUT(nn_pointer).cols == to.cols);
+
+    nn_fill(g_pointer, 0);
+    
+    /*
+    i = current sample
+    l = current layer
+    j = current activation
+    k = previous activation
+    */
+
+    for (size_t i = 0; i < n; i++) {
+        mat_copy(NN_INPUT(nn_pointer), mat_row(ti, i));
+        nn_forward(nn_pointer);
+
+        for (size_t j = 0; j < nn_pointer->count; j++) {
+            mat_fill(g_pointer->as[j], 0);
+        }
+        
+
+        for (size_t j = 0; j < to.cols; j++) {
+            MAT_AT(NN_OUTPUT(g_pointer), 0, j) = MAT_AT(NN_OUTPUT(nn_pointer), 0, j) - MAT_AT(to, i, j);
+        }
+
+        for (size_t l = nn_pointer->count; l > 0 ; l--) {
+            for (size_t j = 0; j < nn_pointer->as[l].cols; j++) {
+                float a = MAT_AT(nn_pointer->as[l], 0, j);
+                float da = MAT_AT(g_pointer->as[l], 0, j);
+                MAT_AT(g_pointer->bs[l-1], 0, j) += 2*da*a*(1 - a);
+
+                for (size_t k = 0; k < nn_pointer->as[l-1].cols; k++) {
+                    // j = weight matrix col
+                    // k = weight matrix row
+                    float pa = MAT_AT(nn_pointer->as[l-1], 0, k);
+                    float w = MAT_AT(nn_pointer->ws[l-1], k, j);
+                    MAT_AT(g_pointer->ws[l-1], k, j) += 2*da*a*(1 - a)*pa;
+                    MAT_AT(g_pointer->as[l-1], 0, k) += 2*da*a*(1 - a)*w;
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < g_pointer->count; i++) {
+        for (size_t j = 0; j < g_pointer->ws[i].rows; j++) {
+            for (size_t k = 0; k < g_pointer->ws[i].cols; k++) {
+                MAT_AT(g_pointer->ws[i], j, k) /= n;
+            }
+        }
+        
+        for (size_t j = 0; j < g_pointer->bs[i].rows; j++) {
+            for (size_t k = 0; k < g_pointer->bs[i].cols; k++) {
+                MAT_AT(g_pointer->bs[i], j, k) /= n;
+            }
+        }
+    }
 }
 
 
