@@ -48,7 +48,7 @@ int main() {
 
     float rate = 1;
 
-    for (size_t i = 0; i < 25000; i++) {
+    for (size_t i = 0; i < 10000; i++) {
         nn_backprop(&nn, &g, ti, to);
         //nn_finite_diff(&nn, &g, 1e-1, ti, to);
         nn_learn(&nn, &g, rate);

@@ -371,7 +371,7 @@ float nn_nonlinear_cost(NN *nn, Mat *ti, Mat *to, float power) {
     return c/n;
 }
 
-
+// *jumps around because of the epsilon value being static
 void nn_nonlinear_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to, float power) {
     float saved;
     float c = nn_nonlinear_cost(nn, ti, to, power);
@@ -379,7 +379,6 @@ void nn_nonlinear_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to, fl
     for (size_t i = 0; i < nn->count; i++) {
         for (size_t j = 0; j < nn->ws[i].rows; j++) {
             for (size_t k = 0; k < nn->ws[i].cols; k++) {
-                
                 saved = MAT_AT(&nn->ws[i], j, k);
                 MAT_AT(&nn->ws[i], j, k) += epsilon;
                 MAT_AT(&g->ws[i], j, k) = (nn_nonlinear_cost(nn, ti, to, power) - c) /epsilon;
@@ -399,13 +398,12 @@ void nn_nonlinear_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to, fl
 }
 
 
-//TODO: try finite differences with dynamic epsilon
 //TODO: try HSIC bottleneck
 // * Backprop for nonlinear trandformations before activation doesn't work. i have no idea why.
 // * I'll just comment it out and keep using finite differences until i find a way to make it work
 // * or i'll ignore backprop to implement other algorithms. I've been here for 20 hours.
 // * I give up. If you read this and want to try it. Good luck.
-/*
+
 void nn_nonlinear_backprop(NN *nn, NN *g, Mat *ti, Mat *to, float power) {
     NN_ASSERT(ti->rows == to->rows);
     size_t n = ti->rows;
@@ -469,4 +467,3 @@ void nn_nonlinear_backprop(NN *nn, NN *g, Mat *ti, Mat *to, float power) {
         }
     }
 }
-*/

@@ -7,10 +7,6 @@
 
 #define BITS 4
 
-float td[] = {
-    1
-};
-
 int main() {
     srand(time(0));
 
@@ -40,23 +36,23 @@ int main() {
     NN nn;
     NN g;
 
-    nn_alloc(&nn, arch, ARRAY_LEN(arch));
-    nn_alloc(&g, arch, ARRAY_LEN(arch));
+    (void) nn_alloc(&nn, arch, ARRAY_LEN(arch));
+    (void) nn_alloc(&g, arch, ARRAY_LEN(arch));
 
     nn_rand(&nn, 0, 1);
 
     NN_PRINT(&nn);
 
-    float rate = 1e-1;
-    float power = 2;
+    float rate = 1;
+    //float power = 2;
 
-    for (size_t i = 0; i < 5000; i++) {
-        //nn_backprop(&nn, &g, &ti, &to);
-        nn_nonlinear_finite_diff(&nn, &g, 1e-1, &ti, &to, power);
+    for (size_t i = 0; i < 10000; i++) {
+        //nn_nonlinear_backprop(&nn, &g, &ti, &to, power);
+        nn_finite_diff(&nn, &g, 1e-1, &ti, &to);
         nn_learn(&nn, &g, rate);
-        printf("%u c = %f\n", i, nn_nonlinear_cost(&nn, &ti, &to, power));
+        printf("%u c = %f\n", i, nn_cost(&nn, &ti, &to));
     }
-
+    printf("c = %f\n", nn_cost(&nn, &ti, &to));
     size_t fails = 0;
     for (size_t x = 0; x < n; x++) {
         for (size_t y = 0; y < n; y++) {
@@ -66,7 +62,7 @@ int main() {
                 MAT_AT(&NN_INPUT(&nn), 0, j + BITS) = (y>>j)&1;
             }
             
-            nn_nonlinear_forward(&nn, power);
+            nn_forward(&nn);
             
             if(MAT_AT(&NN_OUTPUT(&nn), 0, BITS) >0.5f) {
                 if(z > n) {
@@ -90,7 +86,6 @@ int main() {
     if(fails == 0) {
         printf("OK\n");
     }
-       
-    
+    NN_PRINT(&nn);   
     return 0;
 }

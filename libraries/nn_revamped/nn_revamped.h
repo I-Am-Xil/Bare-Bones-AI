@@ -53,9 +53,9 @@ float nn_nonlinear_cost(NN *nn, Mat *ti, Mat *to, float power);
 void nn_nonlinear_finite_diff(NN *nn, NN *g, float epsilon, Mat *ti, Mat *to, float power);
 
 //! HERE BEGINS HELL
-/* // * left a comment about why is commented in the function definition.
+ // * left a comment about why is commented in the function definition.
 
 void nn_nonlinear_backprop(NN *nn, NN *g, Mat *ti, Mat *to, float power);
-*/
+
 
 #endif //NN_REVAMPED_H_
